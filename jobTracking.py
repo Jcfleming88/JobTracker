@@ -37,6 +37,7 @@ def _():
         datetime,
         dp,
         file_path,
+        image_refresh_trigger,
         json,
         mo,
         pd,
@@ -47,11 +48,12 @@ def _():
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(data_refresh_trigger, datetime, pd, timedelta):
     def get_data(trigger_value):
         # Get the data and split it out into the required df's
-        df_apps = pd.read_json("tracking.json")
+        df_all = pd.read_json("tracking.json")
+        df_apps = df_all.copy()
         df_others = df_apps.copy()
         df_rej = df_apps.copy()
 
@@ -131,10 +133,10 @@ def _(data_refresh_trigger, datetime, pd, timedelta):
                 return row['stage']
         df_apps['stage'] = df_apps.apply(set_stage, axis=1)
 
-        return df_apps, df_others, df_rej
+        return df_all, df_apps, df_others, df_rej
 
-    df_apps, df_others, df_rej = get_data(data_refresh_trigger)
-    return df_apps, df_others
+    df_all, df_apps, df_others, df_rej = get_data(data_refresh_trigger)
+    return df_all, df_apps, df_others
 
 
 @app.cell
@@ -152,6 +154,131 @@ def _(mo):
     </h1>
     """
     )
+    return
+
+
+@app.cell
+def _(date, datetime, file_path, json, mo, set_refresh_trigger, type_options):
+    # --- UI Elements ---
+
+    # Input for 'type' (Dropdown)
+    type_input = mo.ui.dropdown(
+        type_options,
+        label="Type",
+        value=type_options[0] # Default to 'Application'
+    )
+
+    # Input for 'date' (Date Picker)
+    date_input = mo.ui.date(
+        label="Date",
+        value=date.today().isoformat() # Default to today's date
+    )
+
+    # Input for 'company' (Text)
+    company_input = mo.ui.text(
+        label="Company",
+        value=""
+    )
+
+    # Input for 'job_title' (Text)
+    job_title_input = mo.ui.text(
+        label="Job Title (Use 'NA' if not applicable)",
+        value=""
+    )
+
+    # Input for 'notes' (Text Area)
+    notes_input = mo.ui.text_area(
+        label="Notes",
+        value="",
+        full_width=True
+    )
+
+
+    def save_new_object(e):
+        """
+        Function to handle the button click and save the new object to the file.
+        """  
+        data = None
+
+        try:
+            # Read the existing file
+            with open(file_path, 'r') as file:
+                # Load the JSON data into a Python list
+                data = json.load(file)
+
+            if data is None:
+                raise Exception("Data not read correctly.")
+
+            # Add the new input to the existing list
+            new_object = {
+                "type": type_input.value,
+                "date": datetime.strftime(date_input.value, '%Y-%m-%d'),
+                "company": company_input.value,
+                "job_title": job_title_input.value,
+                "notes": notes_input.value
+            }
+            data.append(new_object)
+
+            # Open the file again in write mode to overwrite the content
+            with open(file_path, 'w') as file:
+                # Dump the updated Python list back into the file
+                # Use indent=4 for clean, readable formatting
+                json.dump(data, file, indent=4)
+
+            # ⭐ NEW: Increment the trigger to force get_data() to re-run!
+            set_refresh_trigger(lambda value: value + 1)
+
+        except IOError:
+            # Escape if error
+            pass;
+
+
+    # Save Button
+    save_button = mo.ui.button(
+        label="✨ Add New Entry",
+        on_click=save_new_object,
+        kind="success",
+    )
+
+    form_elements_top = mo.hstack([
+        type_input,
+        date_input,
+        company_input,
+        job_title_input,
+    ])
+
+    form_elements = mo.vstack([
+        form_elements_top,
+        notes_input
+    ])
+
+    # Use CSS Grid to arrange the form elements uniformly
+    # Note: notes_input is explicitly set to span 2 columns below for better layout.
+    mo.md(f"""
+        <h3 style="
+            margin-top: 0; 
+            margin-bottom: 10px; 
+            font-size: 2em; 
+            color: #333;
+            font-family: Arial, Helvetica, sans-serif;
+        ">
+            Add New Tracking Entry
+        </h3>
+        <div style="
+            width: 100%
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* Two equal columns */
+            gap: 15px; /* Spacing between elements */
+            padding: 10px;
+            border: 1px solid #ccc; /* Optional: border to visually group the form */
+            border-radius: 8px;
+        ">
+            {form_elements}
+        </div>
+        <div style="margin-top: 15px;">
+            {mo.as_html(save_button)}
+        </div>
+    """)
     return
 
 
@@ -417,161 +544,43 @@ def _(mo):
 
 
 @app.cell
-def _(date, datetime, file_path, json, mo, set_refresh_trigger, type_options):
-    # --- UI Elements ---
+def _(df_apps, pd):
+    df_apps2 = df_apps.copy()
 
-    # Input for 'type' (Dropdown)
-    type_input = mo.ui.dropdown(
-        type_options,
-        label="Type",
-        value=type_options[0] # Default to 'Application'
-    )
-
-    # Input for 'date' (Date Picker)
-    date_input = mo.ui.date(
-        label="Date",
-        value=date.today().isoformat() # Default to today's date
-    )
-
-    # Input for 'company' (Text)
-    company_input = mo.ui.text(
-        label="Company",
-        value=""
-    )
-
-    # Input for 'job_title' (Text)
-    job_title_input = mo.ui.text(
-        label="Job Title (Use 'NA' if not applicable)",
-        value=""
-    )
-
-    # Input for 'notes' (Text Area)
-    notes_input = mo.ui.text_area(
-        label="Notes",
-        value="",
-        full_width=True
-    )
+    df_apps2['date'] = pd.to_datetime(df_apps2['date'])
+    df_apps2 = df_apps2['date'].value_counts().sort_index()
+    print(type(df_apps2.index[0]))
+    return (df_apps2,)
 
 
-    def save_new_object(e):
-        """
-        Function to handle the button click and save the new object to the file.
-        """  
-        data = None
-    
-        try:
-            # Read the existing file
-            with open(file_path, 'r') as file:
-                # Load the JSON data into a Python list
-                data = json.load(file)
-
-            if data is None:
-                raise Exception("Data not read correctly.")
-
-            # Add the new input to the existing list
-            new_object = {
-                "type": type_input.value,
-                "date": datetime.strftime(date_input.value, '%Y-%m-%d'),
-                "company": company_input.value,
-                "job_title": job_title_input.value,
-                "notes": notes_input.value
-            }
-            data.append(new_object)
-    
-            # Open the file again in write mode to overwrite the content
-            with open(file_path, 'w') as file:
-                # Dump the updated Python list back into the file
-                # Use indent=4 for clean, readable formatting
-                json.dump(data, file, indent=4)
-
-            # ⭐ NEW: Increment the trigger to force get_data() to re-run!
-            set_refresh_trigger(lambda value: value + 1)
-
-        except IOError:
-            # Escape if error
-            pass;
-
-
-    # Save Button
-    save_button = mo.ui.button(
-        label="✨ Add New Entry",
-        on_click=save_new_object,
-        kind="success",
-    )
-
-    form_elements_top = mo.hstack([
-        type_input,
-        date_input,
-        company_input,
-        job_title_input,
-    ])
-
-    form_elements = mo.vstack([
-        form_elements_top,
-        notes_input
-    ])
-
-    # Use CSS Grid to arrange the form elements uniformly
-    # Note: notes_input is explicitly set to span 2 columns below for better layout.
-    mo.md(f"""
-        <h3 style="
-            margin-top: 0; 
-            margin-bottom: 10px; 
-            font-size: 2em; 
-            color: #333;
-            font-family: Arial, Helvetica, sans-serif;
-        ">
-            Add New Tracking Entry
-        </h3>
-        <div style="
-            width: 100%
-            display: grid;
-            grid-template-columns: 1fr 1fr; /* Two equal columns */
-            gap: 15px; /* Spacing between elements */
-            padding: 10px;
-            border: 1px solid #ccc; /* Optional: border to visually group the form */
-            border-radius: 8px;
-        ">
-            {form_elements}
-        </div>
-        <div style="margin-top: 15px;">
-            {mo.as_html(save_button)}
-        </div>
-    """)
-    return
-
-
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(datetime, df_apps, df_apps2, dp, image_refresh_trigger, pd, plt):
     def plot_applications(trigger):
-   
+
         # Create a dataframe showing only applications and count them
         df2 = df_apps.copy()
-        df2 = df2.drop(\"job_title\", axis=1)
-        df2 = df2.drop(\"notes\", axis=1)
-        df2 = df2.drop(\"type\", axis=1)
-    
+        df2['date'] = pd.to_datetime(df2['date'])
+        df2 = df2['date'].value_counts().sort_index()
+
         # Create a heatmap
         fig, ax = plt.subplots(figsize=(15, 6), dpi=300)
-        ax.set_title(\"Applications\")
+        ax.set_title("Applications")
         dp.calendar(
             dates=df2.index,
-            values=df2[\"company\"],
-            cmap=\"Wistia\",
+            values=df2.values,
+            cmap="Wistia",
             legend=True,
-            start_date=datetime.strptime(df2.index[0], '%Y-%m-%d'
+            start_date=df_apps2.index[0],
             end_date=datetime.today(),
-            boxstyle=\"circle\",
-            color_for_none=\"ghostwhite\",
+            boxstyle="circle",
+            color_for_none="ghostwhite",
             ax=ax,
         )
         return plt
 
     app_plt = plot_applications(image_refresh_trigger)
     app_plt.gca()
-    """,
-    name="_"
-)
+    return
 
 
 @app.cell
@@ -668,28 +677,32 @@ def _(df_apps):
 
 
 @app.cell
-def _(datetime, df, dp, plt):
-    # Create a dataframe showing only interviews and count them
-    df3 = df[df["type"] == "Interview"].groupby(['date']).count()
-    df3 = df3.drop("job_title", axis=1)
-    df3 = df3.drop("notes", axis=1)
-    df3 = df3.drop("type", axis=1)
+def _(datetime, df_all, dp, image_refresh_trigger, pd, plt):
+    def plot_interview_dates(trigger):
+        # Create a dataframe showing only interviews and count them
+        df3 = df_all[df_all["type"] == "Interview"].copy()
+        df3['date'] = pd.to_datetime(df3['date'])
+        df3 = df3['date'].value_counts().sort_index()
+    
+        # Create a heatmap
+        fig2, ax2 = plt.subplots(figsize=(15, 6), dpi=300)
+        ax2.set_title("Interviews")
+        dp.calendar(
+            dates=df3.index,
+            values=df3.values,
+            cmap="Wistia",
+            legend=True,
+            start_date=df3.index[0],
+            end_date= df3.index[0] if df3.index[0] > datetime.today() else datetime.today(),
+            boxstyle="circle",
+            color_for_none="ghostwhite",
+            ax=ax2,
+        )
 
-    # Create a heatmap
-    fig2, ax2 = plt.subplots(figsize=(15, 6), dpi=300)
-    ax2.set_title("Interviews")
-    dp.calendar(
-        dates=df3.index,
-        values=df3["company"],
-        cmap="Wistia",
-        legend=True,
-        start_date=df3.index[0],
-        end_date=datetime.today(),
-        boxstyle="circle",
-        color_for_none="ghostwhite",
-        ax=ax2,
-    )
-    plt.gca()
+        return plt
+
+    plt_interviews = plot_interview_dates(image_refresh_trigger)
+    plt_interviews.gca()
     return
 
 
