@@ -19,9 +19,6 @@ def _():
     data_refresh_trigger, set_refresh_trigger = mo.state(0)
     image_refresh_trigger, set_image_refresh_trigger = mo.state(0)
 
-    # Define the file path
-    file_path = "tracking.json"
-
     # Define the controlled list for 'type'
     type_options = [
         'Application',
@@ -31,6 +28,35 @@ def _():
         'Interview',
         'Offer'
     ]
+
+    def check_file(filepath):
+        """
+        Checks if a file exists. If it doesn't, create an empty file.
+    
+        Args:
+            filepath (str): The full path and filename to check/create.
+        """
+        if not os.path.exists(filepath):
+            try:
+                # Use 'w' mode to create the file
+                with open(filepath, 'w') as f:
+                    # Create an empty file
+                    pass
+                print(f"{filepath} created successfully")
+                return True
+            except IOError as e:
+                print(f"Error creating file {filepath}: {e}")
+                return False
+        else:
+            print(f"{filepath} found.")
+            return True
+
+    # Define the file path and check it exists for new instances
+    file_path = "tracking.json"
+    if check_file(file_path):
+        mo.md("Tracking file found or created.")
+    else:
+        mo.md(f"Unable to create {file_path}.")
     return (
         data_refresh_trigger,
         date,
@@ -683,7 +709,7 @@ def _(datetime, df_all, dp, image_refresh_trigger, pd, plt):
         df3 = df_all[df_all["type"] == "Interview"].copy()
         df3['date'] = pd.to_datetime(df3['date'])
         df3 = df3['date'].value_counts().sort_index()
-    
+
         # Create a heatmap
         fig2, ax2 = plt.subplots(figsize=(15, 6), dpi=300)
         ax2.set_title("Interviews")
