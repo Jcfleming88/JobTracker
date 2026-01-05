@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.14.11"
+__generated_with = "0.18.3"
 app = marimo.App(width="medium")
 
 
@@ -14,6 +14,7 @@ def _():
     import dayplot as dp
     import matplotlib.pyplot as plt
     from datetime import date, timedelta, datetime
+    from scipy.interpolate import make_interp_spline
 
     # Reactive state variable to act as a refresh trigger
     data_refresh_trigger, set_refresh_trigger = mo.state(0)
@@ -22,6 +23,7 @@ def _():
     # Define the controlled list for 'type'
     type_options = [
         'Application',
+        'Update',
         'Rejection',
         'Interest',
         'Recruiter',
@@ -32,7 +34,7 @@ def _():
     def check_file(filepath):
         """
         Checks if a file exists. If it doesn't, create an empty file.
-    
+
         Args:
             filepath (str): The full path and filename to check/create.
         """
@@ -66,6 +68,7 @@ def _():
         image_refresh_trigger,
         json,
         mo,
+        np,
         pd,
         plt,
         set_refresh_trigger,
@@ -167,19 +170,17 @@ def _(data_refresh_trigger, datetime, pd, timedelta):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     <h1 style="
-        margin-top: 0; 
-        margin-bottom: 10px; 
-        font-size: 4em; 
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 4em;
         color: #333;
         font-family: Arial, Helvetica, sans-serif;
     ">
         Job Tracking
     </h1>
-    """
-    )
+    """)
     return
 
 
@@ -310,19 +311,17 @@ def _(date, datetime, file_path, json, mo, set_refresh_trigger, type_options):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     <h2 style="
-        margin-top: 0; 
-        margin-bottom: 10px; 
-        font-size: 2.75em; 
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 2.75em;
         color: #333;
         font-family: Arial, Helvetica, sans-serif;
     ">
         Last 2 Week
     </h2>
-    """
-    )
+    """)
     return
 
 
@@ -398,19 +397,17 @@ def _(datetime, df_apps, mo, timedelta):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     <h2 style="
-        margin-top: 0; 
-        margin-bottom: 10px; 
-        font-size: 2.75em; 
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 2.75em;
         color: #333;
         font-family: Arial, Helvetica, sans-serif;
     ">
         Overall
     </h2>
-    """
-    )
+    """)
     return
 
 
@@ -512,6 +509,129 @@ def _(datetime, df_apps, mo):
 
 
 @app.cell
+def _(df_apps, image_refresh_trigger, np, pd, plt):
+    def plot_average_apps(trigger):
+
+        # Create a dataframe with the weekly average for applications
+        df = df_apps.copy()
+        df['date'] = pd.to_datetime(df['date'])
+
+        # Sort the DataFrame by date
+        df_sorted = df.sort_values(by='date')
+    
+        # Get the first and last dates
+        first_date = df_sorted['date'].iloc[0]
+        last_date = df_sorted['date'].iloc[-1]
+
+        # Check if the gap is less than 14 days
+        if (last_date - first_date) < pd.Timedelta(days=14):
+            # Set the first_date variable to 14 days before the last_date
+            first_date = last_date - pd.Timedelta(days=14)
+    
+        daily_counts = df.groupby('date').size().reindex(
+            pd.date_range(first_date, last_date, freq='D'), 
+            fill_value=0
+        )
+
+        # Calculate the rolling 14-day sum
+        # Each value is the total applications from that day and the 13 preceding days
+        rolling_14d = daily_counts.rolling(window=14).sum()
+    
+        # Filter to start exactly 14 days after the first date
+        start_limit = first_date + pd.Timedelta(days=14)
+        plot_data = rolling_14d[rolling_14d.index >= start_limit].dropna()
+    
+        # Generate Line Graph
+        # Convert dates to numeric timestamps for interpolation
+        x = np.array([d.timestamp() for d in plot_data.index])
+        y = plot_data.values
+
+        # Create a graph  
+        # Set a more visually appealing style
+        plt.style.use('seaborn-v0_8-whitegrid')
+    
+        # Define custom colors and fonts
+        primary_color = '#005b96' # A professional deep blue
+        fill_color = '#b3cde0'   # A lighter shade for the fill
+        font_family = 'DejaVu Sans'
+    
+        # Create figure and axes with the specified size and resolution
+        fig, ax = plt.subplots(figsize=(15, 6), dpi=300)
+        fig.patch.set_facecolor('white') # Set figure background to white
+        ax.set_facecolor('white') # Set axes background to white
+    
+        # Convert timestamps back to datetime objects for plotting
+        dates = pd.to_datetime(x, unit='s')
+    
+        # --- Plotting ---
+        # Fill the area under the curve first so it's behind the line
+        ax.fill_between(dates, y, color=fill_color, alpha=0.4)
+    
+        # Plot the main line with improved styling
+        line = ax.plot(dates, y,
+                       label='14-Day Rolling Total',
+                       color=primary_color,
+                       linewidth=2.5,           # Thicker line
+                       markersize=4,            # Size of markers
+                       markerfacecolor='white', # White center for markers
+                       markeredgewidth=1.5      # Width of marker edge
+                      )
+    
+        # --- Text & Labels ---
+        # Set title with increased font size and padding
+        ax.set_title('Application Frequency Over Time', fontsize=18, fontfamily=font_family, pad=20)
+    
+        # Set axis labels with clear font sizing
+        ax.set_xlabel('Date', fontsize=14, fontfamily=font_family, labelpad=10)
+        ax.set_ylabel('Number of Applications', fontsize=14, fontfamily=font_family, labelpad=10)
+    
+        # --- Axis Ticks & Grid ---
+        # Customize tick parameters
+        ax.tick_params(axis='both', which='major', labelsize=11, width=1.5, length=5, colors='#333333')
+    
+        # Add major gridlines for better readability
+        ax.grid(visible=True, which='major', color='#dcdcdc', linestyle='-', linewidth=1)
+        # Optional: Add minor gridlines
+        # ax.minorticks_on()
+        # ax.grid(visible=True, which='minor', color='#f0f0f0', linestyle=':', linewidth=0.5)
+    
+        # Format the y-axis labels with commas for thousands (e.g., 1,200)
+        import matplotlib.ticker as ticker
+        ax.yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
+    
+        # Improve date formatting on the x-axis
+        import matplotlib.dates as mdates
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d')) # e.g., 2023-10-27
+        fig.autofmt_xdate(rotation=45) # Rotate dates to prevent overlap
+
+        # Set limits
+        ax.set_ylim(bottom=0)
+        ax.set_xlim(dates.min(), dates.max())
+        current_max = y.max()
+        ax.set_ylim(0, current_max * 1.15)
+
+        # --- Final Touches ---
+        # Remove the top and right spines for a cleaner look
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+    
+        # Make the remaining spines simpler
+        ax.spines['left'].set_color('#333333')
+        ax.spines['bottom'].set_color('#333333')
+        ax.spines['left'].set_linewidth(1.2)
+        ax.spines['bottom'].set_linewidth(1.2)
+    
+        # Ensure everything fits snugly
+        plt.tight_layout()
+    
+        return plt
+
+    avg_plt = plot_average_apps(image_refresh_trigger)
+    avg_plt.gca()
+    return
+
+
+@app.cell
 def _(df_apps, mo):
     live = df_apps[df_apps['stage'] != 'Rejection']['stage'].count();
 
@@ -553,19 +673,17 @@ def _(df_apps):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
+    mo.md("""
     <h1 style="
-        margin-top: 0; 
-        margin-bottom: 10px; 
-        font-size: 4em; 
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 4em;
         color: #333;
         font-family: Arial, Helvetica, sans-serif;
     ">
         Applications
     </h1>
-    """
-    )
+    """)
     return
 
 
@@ -646,19 +764,17 @@ def _(company_search, df_apps, job_search):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     <h1 style="
-        margin-top: 0; 
-        margin-bottom: 10px; 
-        font-size: 4em; 
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 4em;
         color: #333;
         font-family: Arial, Helvetica, sans-serif;
     ">
         Interviews
     </h1>
-    """
-    )
+    """)
     return
 
 
@@ -734,19 +850,17 @@ def _(datetime, df_all, dp, image_refresh_trigger, pd, plt):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     <h1 style="
-        margin-top: 0; 
-        margin-bottom: 10px; 
-        font-size: 4em; 
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 4em;
         color: #333;
         font-family: Arial, Helvetica, sans-serif;
     ">
         Interest and Recruitment
     </h1>
-    """
-    )
+    """)
     return
 
 
